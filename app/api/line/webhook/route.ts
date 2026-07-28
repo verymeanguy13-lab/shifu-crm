@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const business = businesses[0];
 
   if (!business || !business.line_channel_secret) {
-    // Unknown bot / not configured yet — reject rather than trust blindly.
+    console.log("[webhook debug] Unknown channel. destination received:", destination);
     return NextResponse.json({ error: "Unknown channel" }, { status: 401 });
   }
 
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
   );
 
   if (!validSignature) {
+    console.log("[webhook debug] Invalid signature. destination:", destination, "signature header present:", !!signature);
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
