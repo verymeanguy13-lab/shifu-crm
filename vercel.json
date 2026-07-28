@@ -1,4 +1,4 @@
-﻿{
+{
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 10
