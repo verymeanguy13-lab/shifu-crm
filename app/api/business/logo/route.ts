@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   const blob = await put(`logos/business-${businessId}-${file.name}`, file, {
     access: "public",
-    token: process.env.BLOB_READ_WRITE_TOKEN,
+    token: process.env.v3_READ_WRITE_TOKEN,
     addRandomSuffix: true,
   });
 
