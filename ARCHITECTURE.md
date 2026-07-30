@@ -110,6 +110,35 @@ truncated log list previews, get the full value LINE actually sent.
 - Trade type checkboxes (signup + settings): 水電, 家電維修, 鎖匠, 木工, 裝修
   — confirmed as the final list, not a placeholder.
 
+## API route caching gotcha
+GET API routes that read from the database must explicitly set
+`export const dynamic = "force-dynamic";` and client-side `fetch()`
+calls against them should pass `{ cache: "no-store" }`. Without both,
+a plain browser refresh (not a hard refresh) can serve a stale
+response — this caused customer list duplicates in Session 10 because
+saves were succeeding but the list wasn't refetching. Apply this
+pattern to every future list/detail API route, not just customers.
+
+## Auth UX
+`components/dashboard-nav.tsx` provides the sign-out button
+(`next-auth/react`'s `signOut()`) plus quick links, rendered from
+`app/(dashboard)/layout.tsx` so it appears on every gated page. There
+was no way to log out at all until this was added in Session 10 —
+worth remembering if a future session's UI seems to be missing basic
+navigation, since more may still be missing.
+
+## PowerShell text-editing gotcha
+`Get-Content -Raw` / `-replace` / `Set-Content` on a file containing
+Chinese (or any non-ASCII) text can silently corrupt it — PowerShell
+reads/writes using the wrong codepage under the hood. This actually
+happened once (not just the harmless terminal-display glitch
+mentioned above — real corruption requiring a full file rewrite).
+For any edit to a file with non-ASCII content, either use `str_replace`
+equivalent tools carefully, or just rewrite the whole file fresh via
+`[System.IO.File]::WriteAllText(path, content, (New-Object
+System.Text.UTF8Encoding $false))` rather than a Get-Content/-replace
+pipeline.
+
 ## Deployment
 - Vercel project: `shifu-crm`, connected to
   `github.com/verymeanguy13-lab/shifu-crm`, `main` branch.
