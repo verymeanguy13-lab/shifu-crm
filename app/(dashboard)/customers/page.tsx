@@ -21,7 +21,7 @@ export default function CustomersPage() {
     const url = searchTerm
       ? `/api/customers?search=${encodeURIComponent(searchTerm)}`
       : "/api/customers";
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: "no-store" });
     const data = await res.json();
     setCustomers(data.customers || []);
     setLoading(false);

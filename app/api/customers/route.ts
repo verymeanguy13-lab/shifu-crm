@@ -7,6 +7,11 @@ import { authOptions } from "@/lib/auth";
 import { queryUnsafe } from "@/lib/db";
 import type { Customer } from "@/types/crm";
 
+// Prevent this route from ever being cached — without this, a plain
+// browser refresh (not a hard refresh) could serve a stale list after
+// adding/editing a customer.
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session) {
