@@ -64,20 +64,28 @@ export default function SettingsPage() {
     if (!file) return;
 
     setUploadingLogo(true);
-    const formData = new FormData();
-    formData.append("file", file);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const res = await fetch("/api/business/logo", {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json();
-    setUploadingLogo(false);
+      const res = await fetch("/api/business/logo", {
+        method: "POST",
+        body: formData,
+      });
 
-    if (res.ok) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: `上傳失敗（狀態碼 ${res.status}）` }));
+        alert(data.error || "上傳失敗");
+        return;
+      }
+
+      const data = await res.json();
       setLogoUrl(data.url);
-    } else {
-      alert(data.error || "上傳失敗");
+    } catch (err) {
+      console.error("Logo upload error:", err);
+      alert("上傳時發生錯誤，請稍後再試");
+    } finally {
+      setUploadingLogo(false);
     }
   }
 
