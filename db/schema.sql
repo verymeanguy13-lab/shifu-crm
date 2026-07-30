@@ -1,5 +1,9 @@
--- Session 3: Database Schema + Row-Level Security
--- 師傅CRM (Shifu CRM)
+-- schema.sql — kept in sync with the ACTUAL production database.
+-- Session 3 created the original 14 tables + RLS. Everything marked
+-- "Added Session N" below was run directly in Neon's SQL Editor during
+-- later sessions and is folded in here so this file always reflects
+-- reality. If you add a column/table by hand again, add it here too
+-- in the same session.
 
 -- =========================================================
 -- TABLES
@@ -15,7 +19,16 @@ CREATE TABLE businesses (
   trade_types TEXT[] DEFAULT '{}',
   service_area TEXT,
   plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Added Session 6 (auth) — businesses doubles as the login/user table:
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  -- Added Session 8 (LINE webhook routing) — the bot's own LINE user ID,
+  -- used to identify which business a shared webhook URL's event belongs to:
+  line_bot_user_id TEXT,
+  -- Added Session 9 (business settings):
+  logo_url TEXT,
+  default_warranty_months JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE customers (
@@ -24,7 +37,10 @@ CREATE TABLE customers (
   name TEXT NOT NULL,
   phone TEXT,
   notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Added Session 8 — links a LINE contact to a customer record, scoped
+  -- per-business (the same LINE account could message different businesses):
+  line_user_id TEXT
 );
 
 CREATE TABLE properties (
@@ -81,7 +97,7 @@ CREATE TABLE jobs (
   scheduled_at TIMESTAMPTZ,
   warranty_until DATE,
   recurrence_rule TEXT,
-  assigned_to BIGINT  -- references team_members(id), added as FK after that table exists
+  assigned_to BIGINT
 );
 
 CREATE TABLE job_photos (
@@ -161,20 +177,32 @@ CREATE INDEX idx_quotes_business_id_status ON quotes(business_id, status);
 -- ROW-LEVEL SECURITY
 -- =========================================================
 -- Every policy restricts rows to the business_id stored in
--- app.current_business_id for the current session.
--- FORCE ROW LEVEL SECURITY is required because Neon's default
--- role owns these tables, and Postgres exempts table owners
--- from RLS unless FORCE is applied.
--- IMPORTANT: this only works once lib/db.ts (Session 5) sets
--- app.current_business_id in the same round-trip as each query.
+-- app.current_business_id for the current session (set atomically by
+-- lib/db.ts's queryUnsafe() via set_config() in the same transaction()
+-- round-trip as the query itself — see lib/db.ts for why).
+--
+-- businesses itself has NO RLS — it IS the tenant root / login table.
+--
+-- CRITICAL NEON-SPECIFIC GOTCHA: the default `neondb_owner` role has
+-- BYPASSRLS baked in permanently. FORCE ROW LEVEL SECURITY only closes
+-- the table-OWNER bypass loophole — it does nothing against a role with
+-- the separate BYPASSRLS attribute. The app's DATABASE_URL must use a
+-- SEPARATE role with no BYPASSRLS (app_user, created below), or every
+-- policy here is silently inert. neondb_owner is reserved for running
+-- migrations only, never for the running app.
 
--- customers (business_id direct)
+-- (app_user was already created by hand — this is here for reference /
+-- disaster recovery, not meant to be re-run since the role now exists.)
+-- CREATE ROLE app_user LOGIN PASSWORD '<set via Neon dashboard>';
+-- GRANT USAGE ON SCHEMA public TO app_user;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers FORCE ROW LEVEL SECURITY;
 CREATE POLICY customers_business_isolation ON customers
   USING (business_id = current_setting('app.current_business_id')::bigint);
 
--- properties (via customers)
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE properties FORCE ROW LEVEL SECURITY;
 CREATE POLICY properties_business_isolation ON properties
@@ -185,13 +213,11 @@ CREATE POLICY properties_business_isolation ON properties
     )
   );
 
--- quotes (business_id direct)
 ALTER TABLE quotes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quotes FORCE ROW LEVEL SECURITY;
 CREATE POLICY quotes_business_isolation ON quotes
   USING (business_id = current_setting('app.current_business_id')::bigint);
 
--- quote_line_items (via quotes)
 ALTER TABLE quote_line_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quote_line_items FORCE ROW LEVEL SECURITY;
 CREATE POLICY quote_line_items_business_isolation ON quote_line_items
@@ -202,13 +228,11 @@ CREATE POLICY quote_line_items_business_isolation ON quote_line_items
     )
   );
 
--- jobs (business_id direct)
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE jobs FORCE ROW LEVEL SECURITY;
 CREATE POLICY jobs_business_isolation ON jobs
   USING (business_id = current_setting('app.current_business_id')::bigint);
 
--- job_photos (via jobs)
 ALTER TABLE job_photos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_photos FORCE ROW LEVEL SECURITY;
 CREATE POLICY job_photos_business_isolation ON job_photos
@@ -219,7 +243,6 @@ CREATE POLICY job_photos_business_isolation ON job_photos
     )
   );
 
--- job_notes (via jobs)
 ALTER TABLE job_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_notes FORCE ROW LEVEL SECURITY;
 CREATE POLICY job_notes_business_isolation ON job_notes
@@ -230,7 +253,6 @@ CREATE POLICY job_notes_business_isolation ON job_notes
     )
   );
 
--- payments (via jobs)
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments FORCE ROW LEVEL SECURITY;
 CREATE POLICY payments_business_isolation ON payments
@@ -241,7 +263,6 @@ CREATE POLICY payments_business_isolation ON payments
     )
   );
 
--- messages (via customers)
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages FORCE ROW LEVEL SECURITY;
 CREATE POLICY messages_business_isolation ON messages
@@ -252,7 +273,6 @@ CREATE POLICY messages_business_isolation ON messages
     )
   );
 
--- reviews (via jobs)
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews FORCE ROW LEVEL SECURITY;
 CREATE POLICY reviews_business_isolation ON reviews
@@ -263,13 +283,11 @@ CREATE POLICY reviews_business_isolation ON reviews
     )
   );
 
--- team_members (business_id direct)
 ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_members FORCE ROW LEVEL SECURITY;
 CREATE POLICY team_members_business_isolation ON team_members
   USING (business_id = current_setting('app.current_business_id')::bigint);
 
--- parts (business_id direct)
 ALTER TABLE parts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parts FORCE ROW LEVEL SECURITY;
 CREATE POLICY parts_business_isolation ON parts
