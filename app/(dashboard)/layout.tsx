@@ -1,7 +1,7 @@
-// Session 6: Authentication — gates the entire (dashboard) route group
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
+import { DashboardNav } from "@/components/dashboard-nav";
 
 export default async function DashboardLayout({
   children,
@@ -14,5 +14,10 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <DashboardNav />
+      {children}
+    </>
+  );
 }
